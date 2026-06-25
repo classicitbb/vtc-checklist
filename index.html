@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>VTC Remote Venue Checklist</title>
+<meta name="theme-color" content="#1b4d89" />
+<meta name="description" content="Installable offline checklist app for VTC remote venue auditorium gatherings." />
+<link rel="manifest" href="manifest.json" />
+<link rel="apple-touch-icon" href="icons/icon-192.png" />
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--ink:#17202a;--muted:#667085;--line:#e5e7eb;--ok:#147a3c;--warn:#995c00;--blue:#1b4d89;--shadow:0 10px 30px rgba(16,24,40,.08)}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif}header{position:sticky;top:0;background:#fff;z-index:10;border-bottom:1px solid var(--line);padding:14px 16px}h1{font-size:20px;margin:0 0 4px}p{margin:0;color:var(--muted);font-size:14px}.wrap{max-width:950px;margin:0 auto;padding:14px}.toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:12px 0}.pill,.btn{border:1px solid var(--line);background:#fff;border-radius:999px;padding:9px 12px;font-weight:650;color:var(--ink);cursor:pointer}.pill.active{background:var(--blue);color:#fff;border-color:var(--blue)}.btn.danger{color:#b42318}.summary{background:#fff;border:1px solid var(--line);border-radius:16px;padding:14px;margin:12px 0;box-shadow:var(--shadow)}.bar{height:12px;background:#eef2f6;border-radius:99px;overflow:hidden;margin-top:10px}.fill{height:100%;width:0;background:var(--ok);transition:.25s}.cat{background:var(--card);border:1px solid var(--line);border-radius:16px;margin:12px 0;box-shadow:var(--shadow);overflow:hidden}.catHead{display:flex;justify-content:space-between;gap:10px;align-items:center;padding:14px;cursor:pointer}.catTitle{font-size:17px;font-weight:750}.catMeta{font-size:13px;color:var(--muted);white-space:nowrap}.cat.done .catHead{background:#edf7f0}.items{border-top:1px solid var(--line);padding:6px 0}.item{display:grid;grid-template-columns:32px 1fr;gap:8px;padding:12px 14px;border-top:1px solid #f1f3f5}.item:first-child{border-top:0}.item input{width:22px;height:22px;margin-top:1px}.item label{line-height:1.35;font-size:15px}.note{color:var(--muted);font-size:13px;margin-top:4px}.hidden{display:none!important}.footer{padding:20px;color:var(--muted);font-size:12px;text-align:center}@media(min-width:720px){h1{font-size:24px}.item label{font-size:16px}}
+</style>
+</head>
+<body>
+<header><h1>VTC Remote Venue Checklist</h1><p>Checklist app for auditorium gatherings. Progress is saved on this device.</p></header>
+<main class="wrap">
+  <div class="toolbar" id="dayTabs"></div>
+  <section class="summary"><strong id="dayTitle"></strong><p id="dayHint"></p><div class="bar"><div class="fill" id="overallFill"></div></div><p id="overallText" style="margin-top:8px"></p></section>
+  <div class="toolbar"><button class="btn" id="expandIncomplete">Expand incomplete</button><button class="btn" id="collapseComplete">Collapse complete</button><button class="btn danger" id="resetDay">Reset this day</button></div>
+  <div id="categories"></div>
+  <div class="footer">Use the day buttons to go back and review previous days. Completed categories can be collapsed automatically.</div>
+</main>
+<script>
+const EVENT_DAYS=[
+ {id:'fri',label:'Friday',date:'2026-06-26',full:'Friday 26 June 2026'},
+ {id:'sat',label:'Saturday',date:'2026-06-27',full:'Saturday 27 June 2026'},
+ {id:'lord',label:"Lord's Day",date:'2026-06-28',full:"Lord's Day 28 June 2026"}
+];
+const COMMON=[
+ {id:'venue-pre',title:'Venue pre-occasion checklist',items:[
+ 'Seating set up with total number of chairs for all invitees and VTC. Small table beside VTC in Row 2 only if not distracting. All attendees visible on camera.',
+ 'Climate control timers overridden.',
+ 'Automatic venue lighting timers adjusted or able to be overridden.',
+ 'Security company and external parties such as gardeners/cleaners notified to prevent disruption.',
+ 'If meeting is after hours, neighbour impact considered for arrivals and departures.',
+ 'Refreshment team aware of the plan and meeting times.',
+ 'Electrical equipment for refreshments tested with technology equipment to avoid outages.',
+ 'Amenities functioning, clean, and consumables stocked.',
+ 'External grounds safe; parking accessible; surfaces clear of trip hazards.',
+ 'CCTV that could capture screens or audio disabled for the duration of meetings.',
+ 'Third-party remote access to CCTV, IT, or network disabled as required.',
+ 'Ministry indexes readily available on site.',
+ 'Provisions ready for those attending near the venue room but not visible on camera: first aid kit, notebooks, pens, water, hot/cold drinks, mints, refresher towels, Panadol/Paracetamol, Berocca or similar.'
+ ]},
+ {id:'tech-pre',title:'Technology pre-occasion checklist',items:[
+ 'Microsoft Windows has no pending updates.',
+ 'PC system sounds are OFF.',
+ 'Windows updates paused for 7 days before the occasion after confirming no pending updates.',
+ 'Primary and secondary internet have sufficient data or credit.',
+ 'Computer meets requirements and performed well on sound checks.',
+ 'Only Zoom is required; unnecessary applications closed.',
+ 'Computer and mobile notifications/calendar reminders on silent.',
+ 'Computer connected by ethernet cable direct to modem, not Wi-Fi. Wi-Fi disabled if needed.',
+ 'Other devices removed from the network, including Wi-Fi devices.',
+ 'Backup computer and hotspot fully charged and on standby for prompt changeover.',
+ 'Spare webcam, mic, keyboard, mouse, and Bluetooth speaker available where possible.',
+ 'Backup power/UPS in place and tested for minimum required runtime.',
+ 'Microsoft Teams installed and configured using Work or school option.',
+ 'Sleep mode OFF on all equipment including screens.',
+ 'Equipment and lighting completely set up.',
+ 'Camera 1.4m from ground to bottom of camera.',
+ 'Logitech Sync: auto-focus OFF, manual focus set, AI tracking disabled.',
+ 'Camera zoom/position set as per handbook.',
+ 'Room well lit, especially faces.',
+ 'Hall audio ON and tested over Zoom.',
+ 'Rows 1 and 2 microphones ON only; row 3 only if Zoom invite brothers are seated there.',
+ 'Microphones outside the camera frame unplugged and removed.',
+ 'Local recorders OFF.',
+ 'Blue Yeti gain set to 1 o’clock, pattern cardioid, Blue logo/mute button facing attendees.',
+ '64-bit Zoom version installed.',
+ 'Zoom display/naming convention confirmed.',
+ 'Zoom Video: correct camera, HD ON, Portrait lighting OFF.',
+ 'Zoom Audio: correct microphone source, input volume 70%, spatial audio OFF, auto-adjust OFF, background noise removal Medium.',
+ 'Audio tested from rows 1 and 2 and the Yeti mic.',
+ 'Zoom Meetings: microphone muted ON, dual monitors ON, participant names visible ON, meeting controls visible ON, spacebar temporary unmute OFF.'
+ ]},
+ {id:'arrival-local',title:'Local arrival and building opening checklist',items:[
+ 'Open the gate using code 52514 and left button park.',
+ 'Unlock the meeting room.',
+ 'Disarm the alarm using code 1542.',
+ 'Prop open the main doors.',
+ 'Switch on all lights at the light controls.',
+ 'Set gate switch to entry open.',
+ 'Prop open the two outer doors leading into the hall.'
+ ]}
+];
+const DAILY=[
+ {id:'venue-day',title:'Venue on-the-day checklist',items:[
+ 'Seating set up with total number of chairs for invitees and VTC.',
+ 'Air conditioner operating; temperature set between 18–21°C. Thermometer nearby to monitor throughout session.',
+ 'Communication channel open with caterer/s; they know meeting times and any changes.',
+ 'Caterer/s understand they must clean the area and vacate before second session.',
+ 'Doors to venue secured and locked after attendees arrive.',
+ 'At conclusion of each day, hall grounds cleared within 30 minutes.'
+ ]},
+ {id:'tech-day',title:'Technology on-the-day checklist',items:[
+ 'Restart PC, modem, and all meeting equipment before joining.',
+ 'Confirm primary internet is achieving acceptable speed.',
+ 'Backup computer and hotspot fully charged and on standby.',
+ 'Test internet failover and ensure backup is connected to internet and HDMI 2 screen inputs; test switchover.',
+ 'Logitech Sync: auto-focus OFF, manual focus set, AI tracking disabled.',
+ 'Battery-powered accessories such as keyboard/mouse have fresh batteries.',
+ 'Stream Deck, keyboard, mouse, and peripherals work from the VTC seat with brothers seated in row 1.',
+ 'PC system sounds OFF.',
+ 'Zoom display name correct, sentence case, names left to right.',
+ 'Confirm no pending Zoom updates.',
+ 'Zoom Video: correct camera, HD ON, Portrait lighting OFF, hardware acceleration for sending/receiving video ON.',
+ 'Zoom Audio: correct microphone, input volume 70%, spatial audio OFF, auto-adjust OFF, background noise removal Medium.',
+ 'Audio tested from rows 1 and 2 and the Yeti mic; unwanted mics unplugged; other rows OFF.',
+ 'Zoom Meetings: microphone muted ON, dual monitors ON, participant names visible ON, meeting controls visible ON, spacebar temporary unmute OFF.',
+ 'Test unmute/mute process for prompt reliable use.',
+ 'Screen 1 set to Zoom speaker view with controls; host venue pinned to screen 2.'
+ ]},
+ {id:'etiquette',title:'General etiquette during meeting checklist',items:[
+ 'Phones on silent and kept separate from venue room, except for the VTC.',
+ 'VTC explains the unmuting process to attendees at the beginning of each day.',
+ 'No recording, videoing, or photos in the venue room.',
+ 'No accidental unmuting.',
+ 'No browsing through connections during the meeting.',
+ 'No distracting behaviour.',
+ 'No water bottles used during the meeting.',
+ 'VTC is very quick to unmute when required; no delays.',
+ 'No unmuting/speaking after meetings unless explicitly called upon.'
+ ]}
+];
+function catsFor(day){return [...COMMON,...DAILY].map(c=>({...c,items:[...c.items]}));}
+function storageKey(day,cat,i){return `vtc:${day}:${cat}:${i}`}
+function collapsedKey(day,cat){return `vtc:${day}:${cat}:collapsed`}
+function defaultDay(){const now=new Date(); const today=now.toISOString().slice(0,10); let found=EVENT_DAYS.find(d=>d.date>=today); return found?found.id:EVENT_DAYS[EVENT_DAYS.length-1].id;}
+let currentDay=localStorage.getItem('vtcCurrentDay')||defaultDay();
+function pct(done,total){return total?Math.round(done/total*100):0}
+function renderTabs(){let el=document.getElementById('dayTabs');el.innerHTML='';EVENT_DAYS.forEach(d=>{let b=document.createElement('button');b.className='pill '+(d.id===currentDay?'active':'');b.textContent=d.label;b.onclick=()=>{currentDay=d.id;localStorage.setItem('vtcCurrentDay',currentDay);render()};el.appendChild(b);});}
+function render(){renderTabs(); const day=EVENT_DAYS.find(d=>d.id===currentDay); document.getElementById('dayTitle').textContent=day.full; document.getElementById('dayHint').textContent='Default day advances automatically by calendar date. Previous days remain available from the buttons above.'; const root=document.getElementById('categories'); root.innerHTML=''; let grandDone=0,grandTotal=0; catsFor(currentDay).forEach(cat=>{let total=cat.items.length; let done=cat.items.filter((_,i)=>localStorage.getItem(storageKey(currentDay,cat.id,i))==='1').length; grandDone+=done; grandTotal+=total; let card=document.createElement('section');card.className='cat '+(done===total?'done':''); let collapsed=localStorage.getItem(collapsedKey(currentDay,cat.id)); if(collapsed===null && done===total) collapsed='1'; let head=document.createElement('div');head.className='catHead';head.innerHTML=`<div><div class="catTitle">${cat.title}</div><div class="note">${done} out of ${total} complete</div></div><div class="catMeta">${pct(done,total)}% ${collapsed==='1'?'▸':'▾'}</div>`; let items=document.createElement('div');items.className='items '+(collapsed==='1'?'hidden':''); head.onclick=()=>{let isHidden=items.classList.toggle('hidden');localStorage.setItem(collapsedKey(currentDay,cat.id),isHidden?'1':'0');render()}; card.appendChild(head); card.appendChild(items); cat.items.forEach((txt,i)=>{let row=document.createElement('div');row.className='item'; let id=`${currentDay}-${cat.id}-${i}`; let checked=localStorage.getItem(storageKey(currentDay,cat.id,i))==='1'; row.innerHTML=`<input id="${id}" type="checkbox" ${checked?'checked':''}><label for="${id}">${txt}</label>`; row.querySelector('input').onchange=e=>{localStorage.setItem(storageKey(currentDay,cat.id,i),e.target.checked?'1':'0'); if(e.target.checked && cat.items.every((_,j)=>localStorage.getItem(storageKey(currentDay,cat.id,j))==='1')) localStorage.setItem(collapsedKey(currentDay,cat.id),'1'); render();}; items.appendChild(row);}); root.appendChild(card);}); document.getElementById('overallFill').style.width=pct(grandDone,grandTotal)+'%'; document.getElementById('overallText').textContent=`${grandDone} out of ${grandTotal} complete — ${pct(grandDone,grandTotal)}% complete`;}
+document.getElementById('expandIncomplete').onclick=()=>{catsFor(currentDay).forEach(cat=>{let done=cat.items.filter((_,i)=>localStorage.getItem(storageKey(currentDay,cat.id,i))==='1').length;localStorage.setItem(collapsedKey(currentDay,cat.id),done===cat.items.length?'1':'0')});render();};
+document.getElementById('collapseComplete').onclick=()=>{catsFor(currentDay).forEach(cat=>{let done=cat.items.filter((_,i)=>localStorage.getItem(storageKey(currentDay,cat.id,i))==='1').length;if(done===cat.items.length)localStorage.setItem(collapsedKey(currentDay,cat.id),'1')});render();};
+document.getElementById('resetDay').onclick=()=>{if(confirm('Reset all checks for this day?')){catsFor(currentDay).forEach(cat=>cat.items.forEach((_,i)=>localStorage.removeItem(storageKey(currentDay,cat.id,i))));render();}};
+render();
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./service-worker.js').catch(err => console.warn('Service worker registration failed:', err));
+  });
+}
+</script>
+</body>
+</html>
