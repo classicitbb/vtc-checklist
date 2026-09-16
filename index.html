@@ -51,6 +51,10 @@ p{margin:0;color:var(--muted);font-size:14px}
 .pill.active .pillTimes{color:rgba(255,255,255,.82)}
 .btn{border-radius:999px}
 .btn.danger{color:var(--danger)}
+.syncChip{display:inline-flex;align-items:center;gap:6px;padding:8px 12px;border-radius:999px;border:1px solid var(--line);background:var(--card);font-size:13px;font-weight:650;color:var(--muted);white-space:nowrap}
+.syncChip .dot{width:8px;height:8px;border-radius:50%;background:var(--muted);flex:none}
+.syncChip.is-live{color:var(--ok)}.syncChip.is-live .dot{background:var(--ok)}
+.syncChip.is-offline{color:var(--warn)}.syncChip.is-offline .dot{background:var(--warn)}
 
 /* Day summary */
 .summary{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px;margin:12px 0;box-shadow:var(--shadow)}
@@ -125,7 +129,7 @@ p{margin:0;color:var(--muted);font-size:14px}
     </div>
   </section>
 
-  <div class="toolbar"><button class="btn" id="expandIncomplete">Expand incomplete</button><button class="btn" id="collapseComplete">Collapse complete</button><button class="btn danger" id="resetDay">Reset this day</button></div>
+  <div class="toolbar"><button class="btn" id="expandIncomplete">Expand incomplete</button><button class="btn" id="collapseComplete">Collapse complete</button><button class="btn danger" id="resetDay">Reset this day</button><span class="syncChip" id="syncChip" title="Sharing status"><span class="dot"></span><span id="syncText">This device only</span></span></div>
   <div id="categories"></div>
   <div class="footer">Use the day buttons to go back and review previous days. Completed categories can be collapsed automatically.</div>
 </main>
@@ -308,6 +312,177 @@ const storedDay=localStorage.getItem('vtcCurrentDay');
 let currentDay=EVENT_DAYS.some(d=>d.id===storedDay)?storedDay:defaultDay();
 function pct(done,total){return total?Math.round(done/total*100):0}
 
+/* ---------------------------------------------------------------------------
+   Optional shared tick state.
+
+   Set SYNC_DEFAULT to a Firebase Realtime Database path, or open the app once
+   with ?sync=<url> (stored on the device, ?sync= on its own clears it). Uses
+   the database REST API and its server-sent-events stream, so there is no SDK
+   to load and the app keeps working untouched when no URL is set.
+
+   Only tick state travels: {v:0|1,t:<epoch ms>} per item. Newest write wins.
+   Ticks made offline are queued locally and flushed on reconnect.
+--------------------------------------------------------------------------- */
+const SYNC_DEFAULT='';
+const QUEUE_KEY='vtc:queue';
+function resolveSyncUrl(){
+  const q=new URLSearchParams(location.search).get('sync');
+  if(q!==null){
+    if(q) localStorage.setItem('vtcSyncUrl',q.replace(/\/+$/,''));
+    else localStorage.removeItem('vtcSyncUrl');
+  }
+  return localStorage.getItem('vtcSyncUrl')||SYNC_DEFAULT;
+}
+const SYNC=resolveSyncUrl();
+function tsKey(day,cat,i){return `vtc:t:${day}:${cat}:${i}`}
+function getCheck(day,cat,i){return localStorage.getItem(storageKey(day,cat,i))==='1'}
+function getTs(day,cat,i){return Number(localStorage.getItem(tsKey(day,cat,i)))||0}
+function writeLocal(day,cat,i,v,t){
+  localStorage.setItem(storageKey(day,cat,i),v?'1':'0');
+  localStorage.setItem(tsKey(day,cat,i),String(t));
+}
+function clearLocal(day,cat,i){
+  localStorage.removeItem(storageKey(day,cat,i));
+  localStorage.removeItem(tsKey(day,cat,i));
+}
+function readQueue(){try{return JSON.parse(localStorage.getItem(QUEUE_KEY))||[]}catch(e){return []}}
+function writeQueue(q){localStorage.setItem(QUEUE_KEY,JSON.stringify(q.slice(-1000)))}
+function setSyncState(state){
+  const chip=document.getElementById('syncChip');
+  const text=document.getElementById('syncText');
+  if(!chip) return;
+  chip.classList.remove('is-live','is-offline');
+  if(!SYNC){text.textContent='This device only';return}
+  if(state==='live'){chip.classList.add('is-live');text.textContent='Shared \u00b7 live'}
+  else if(state==='connecting'){text.textContent='Shared \u00b7 connecting\u2026'}
+  else{
+    chip.classList.add('is-offline');
+    const pending=readQueue().length;
+    text.textContent=pending?`Shared \u00b7 offline \u00b7 ${pending} waiting`:'Shared \u00b7 offline';
+  }
+}
+function sendOp(op){
+  if(!SYNC) return Promise.resolve();
+  return fetch(`${SYNC}/${op.p}.json`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(op.b)})
+    .then(r=>{if(!r.ok)throw new Error('HTTP '+r.status);setSyncState('live')})
+    .catch(()=>{const q=readQueue();q.push(op);writeQueue(q);setSyncState('offline')});
+}
+// A queued write must never clobber something newer that landed while we were
+// away, so each one is checked against the board before it goes up.
+function flushQueue(){
+  const q=readQueue();
+  if(!q.length) return;
+  writeQueue([]);
+  const newest={};
+  q.forEach(op=>{if(!newest[op.p]||Number(op.b.t)>Number(newest[op.p].b.t)) newest[op.p]=op});
+  Object.values(newest).forEach(op=>{
+    const [day,cat,i]=op.p.split('/');
+    if(Number(op.b.t)<getTs(day,cat,i)) return;            // already superseded on this device
+    fetch(`${SYNC}/${op.p}.json`)
+      .then(r=>r.ok?r.json():Promise.reject(new Error('HTTP '+r.status)))
+      .then(remote=>{
+        if(remote&&Number(remote.t)>Number(op.b.t)){        // board is newer: take theirs
+          applyRemote([day,cat,i],remote);
+          renderSoon();
+          setSyncState('live');
+          return;
+        }
+        return sendOp(op);
+      })
+      .catch(()=>{const cur=readQueue();cur.push(op);writeQueue(cur);setSyncState('offline')});
+  });
+}
+const pushed={};   // stops a reconnect merge re-sending a write already in flight
+function pushCheck(day,cat,i,v,t){
+  const path=`${day}/${cat}/${i}`;
+  if(pushed[path]===t) return;
+  pushed[path]=t;
+  sendOp({p:path,b:{v:v?1:0,t}});
+}
+// A whole-day write keeps reset last-write-wins without needing tombstones.
+function pushDay(day,value){sendOp({p:day,b:value})}
+let renderQueued=false;
+function renderSoon(){
+  if(renderQueued) return;
+  renderQueued=true;
+  setTimeout(()=>{renderQueued=false;render()},0);
+}
+function applyRemote(path,data){
+  if(data===null||data===undefined){
+    if(path.length&&path.length<=2) catsFor(path[0]).forEach(cat=>{
+      if(path.length===2&&cat.id!==path[1]) return;
+      cat.items.forEach((_,i)=>clearLocal(path[0],cat.id,i));
+    });
+    else if(path.length===3) clearLocal(path[0],path[1],path[2]);
+    return;
+  }
+  if(typeof data==='object'&&!('v' in data)){
+    Object.keys(data).forEach(k=>applyRemote(path.concat(k),data[k]));
+    return;
+  }
+  if(path.length!==3) return;
+  const [day,cat,i]=path;
+  const t=Number(data.t)||0;
+  if(t>=getTs(day,cat,i)) writeLocal(day,cat,i,data.v===1||data.v===true,t);
+}
+// Anything ticked here that the board has not seen (or has an older copy of)
+// goes up on connect, so offline ticks are never silently lost.
+function mergeUp(remote){
+  EVENT_DAYS.forEach(day=>catsFor(day.id).forEach(cat=>cat.items.forEach((_,i)=>{
+    const local=getCheck(day.id,cat.id,i);
+    const localTs=getTs(day.id,cat.id,i)||(local?1:0);
+    if(!localTs) return;
+    const node=remote&&remote[day.id]&&remote[day.id][cat.id]&&remote[day.id][cat.id][i];
+    if(!node||localTs>(Number(node.t)||0)) pushCheck(day.id,cat.id,i,local,localTs);
+  })));
+}
+function onStreamEvent(raw){
+  let msg;
+  try{msg=JSON.parse(raw)}catch(e){return}
+  if(!msg||typeof msg.path!=='string') return;
+  const path=msg.path==='/'?[]:msg.path.replace(/^\//,'').split('/');
+  applyRemote(path,msg.data);
+  if(!path.length) mergeUp(msg.data);
+  renderSoon();
+}
+/* A dropped stream does not always raise an error: the connection can stay open
+   and simply go quiet, which is what a phone moving between Wi-Fi and mobile
+   data looks like. So recovery never depends on stream events alone - a timer
+   retries queued writes, and a silent stream is reopened to pull a fresh
+   snapshot. The database sends keep-alives, which reset the watchdog. */
+const RETRY_MS=15000;
+const STREAM_SILENCE_MS=60000;
+let stream=null,lastStreamEvent=0;
+function openStream(){
+  stream=new EventSource(`${SYNC}.json`);
+  lastStreamEvent=Date.now();
+  const mark=()=>{lastStreamEvent=Date.now()};
+  stream.addEventListener('put',e=>{mark();onStreamEvent(e.data)});
+  stream.addEventListener('patch',e=>{mark();onStreamEvent(e.data)});
+  stream.addEventListener('keep-alive',mark);
+  stream.onopen=()=>{mark();setSyncState('live');flushQueue()};
+  stream.onerror=()=>setSyncState('offline');
+}
+function reopenStream(){
+  if(stream) stream.close();
+  openStream();
+}
+function startSync(){
+  if(!SYNC){setSyncState('local');return}
+  setSyncState('connecting');
+  openStream();
+  setInterval(()=>{
+    if(readQueue().length) flushQueue();
+    if(Date.now()-lastStreamEvent>STREAM_SILENCE_MS) reopenStream();
+  },RETRY_MS);
+  window.addEventListener('online',()=>{reopenStream();flushQueue()});
+  document.addEventListener('visibilitychange',()=>{
+    if(document.hidden) return;
+    if(readQueue().length) flushQueue();
+    if(Date.now()-lastStreamEvent>STREAM_SILENCE_MS) reopenStream();
+  });
+}
+
 /* ------------------------------- next up --------------------------------- */
 // The item under way keeps "now" for 15 minutes, then the strip moves on.
 const NOW_WINDOW_MS=15*60*1000;
@@ -407,7 +582,7 @@ function render(){
   let grandDone=0,grandTotal=0;
   catsFor(currentDay).forEach(cat=>{
     const total=cat.items.length;
-    const done=cat.items.filter((_,i)=>localStorage.getItem(storageKey(currentDay,cat.id,i))==='1').length;
+    const done=cat.items.filter((_,i)=>getCheck(currentDay,cat.id,i)).length;
     grandDone+=done;grandTotal+=total;
     const card=document.createElement('section');
     card.className='cat '+(done===total?'done':'');
@@ -424,12 +599,14 @@ function render(){
       const row=document.createElement('div');
       row.className='item';
       const id=`${currentDay}-${cat.id}-${i}`;
-      const checked=localStorage.getItem(storageKey(currentDay,cat.id,i))==='1';
+      const checked=getCheck(currentDay,cat.id,i);
       row.innerHTML=`<input id="${id}" type="checkbox" ${checked?'checked':''}><label for="${id}"></label>`;
       row.querySelector('label').textContent=txt;
       row.querySelector('input').onchange=e=>{
-        localStorage.setItem(storageKey(currentDay,cat.id,i),e.target.checked?'1':'0');
-        if(e.target.checked && cat.items.every((_,j)=>localStorage.getItem(storageKey(currentDay,cat.id,j))==='1')) localStorage.setItem(collapsedKey(currentDay,cat.id),'1');
+        const now=Date.now();
+        writeLocal(currentDay,cat.id,i,e.target.checked,now);
+        pushCheck(currentDay,cat.id,i,e.target.checked,now);
+        if(e.target.checked && cat.items.every((_,j)=>getCheck(currentDay,cat.id,j))) localStorage.setItem(collapsedKey(currentDay,cat.id),'1');
         render();
       };
       items.appendChild(row);
@@ -445,11 +622,25 @@ function toggleRunSheet(){
 }
 document.getElementById('runHead').onclick=toggleRunSheet;
 document.getElementById('runHead').onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();toggleRunSheet()}};
-document.getElementById('expandIncomplete').onclick=()=>{catsFor(currentDay).forEach(cat=>{const done=cat.items.filter((_,i)=>localStorage.getItem(storageKey(currentDay,cat.id,i))==='1').length;localStorage.setItem(collapsedKey(currentDay,cat.id),done===cat.items.length?'1':'0')});render()};
-document.getElementById('collapseComplete').onclick=()=>{catsFor(currentDay).forEach(cat=>{const done=cat.items.filter((_,i)=>localStorage.getItem(storageKey(currentDay,cat.id,i))==='1').length;if(done===cat.items.length)localStorage.setItem(collapsedKey(currentDay,cat.id),'1')});render()};
-document.getElementById('resetDay').onclick=()=>{if(confirm('Reset all checks for this day?')){catsFor(currentDay).forEach(cat=>cat.items.forEach((_,i)=>localStorage.removeItem(storageKey(currentDay,cat.id,i))));render()}};
+document.getElementById('expandIncomplete').onclick=()=>{catsFor(currentDay).forEach(cat=>{const done=cat.items.filter((_,i)=>getCheck(currentDay,cat.id,i)).length;localStorage.setItem(collapsedKey(currentDay,cat.id),done===cat.items.length?'1':'0')});render()};
+document.getElementById('collapseComplete').onclick=()=>{catsFor(currentDay).forEach(cat=>{const done=cat.items.filter((_,i)=>getCheck(currentDay,cat.id,i)).length;if(done===cat.items.length)localStorage.setItem(collapsedKey(currentDay,cat.id),'1')});render()};
+document.getElementById('resetDay').onclick=()=>{
+  if(!confirm(SYNC?'Reset all checks for this day, for everyone sharing this board?':'Reset all checks for this day?')) return;
+  const now=Date.now();
+  const dayValue={};
+  catsFor(currentDay).forEach(cat=>{
+    dayValue[cat.id]={};
+    cat.items.forEach((_,i)=>{
+      if(SYNC){writeLocal(currentDay,cat.id,i,false,now);dayValue[cat.id][i]={v:0,t:now}}
+      else clearLocal(currentDay,cat.id,i);
+    });
+  });
+  if(SYNC) pushDay(currentDay,dayValue);
+  render();
+};
 
 render();
+startSync();
 setInterval(()=>{renderNext();renderRunSheet(EVENT_DAYS.find(d=>d.id===currentDay))},30000);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden) render()});
 
