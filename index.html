@@ -314,27 +314,42 @@ let currentDay=EVENT_DAYS.some(d=>d.id===storedDay)?storedDay:defaultDay();
 function pct(done,total){return total?Math.round(done/total*100):0}
 
 /* ---------------------------------------------------------------------------
-   Optional shared tick state.
+   Shared tick state.
 
-   Set SYNC_DEFAULT to a Firebase Realtime Database path, or open the app once
-   with ?sync=<url> (stored on the device, ?sync= on its own clears it). Uses
-   the database REST API and its server-sent-events stream, so there is no SDK
-   to load and the app keeps working untouched when no URL is set.
+   Ticks are shared through a board. Two kinds of board are understood:
 
-   Only tick state travels: {v:0|1,t:<epoch ms>} per item. Newest write wins.
-   Ticks made offline are queued locally and flushed on reconnect.
+     Supabase  https://<project>.supabase.co   - uses PostgREST, polled
+     Firebase  https://<db>.firebaseio.com/... - uses the REST event stream
+
+   The address comes from SYNC_DEFAULT, from ?sync=<url>, or from tapping the
+   status chip. No SDK is loaded either way, and with no address the app is
+   local to the device exactly as before.
+
+   Only tick state travels: {v:0|1,t:<epoch ms>} per item, keyed by
+   <day>/<category>/<item index>. Newest write wins. Ticks made while offline
+   are queued and checked against the board before they are sent.
 --------------------------------------------------------------------------- */
-const SYNC_DEFAULT='';
+const SYNC_DEFAULT='https://dzsalnvmlvjoatryhqfz.supabase.co';
+const SUPABASE_KEY='';              // publishable (anon) key for that project
+const BOARD_ID='vtc-sep2026';       // which board on it
 const QUEUE_KEY='vtc:queue';
+const RETRY_MS=5000;                // how often queued writes are retried
+const POLL_MS=4000;
+const STREAM_SILENCE_MS=60000;
+
+// A device follows SYNC_DEFAULT unless it has been pointed somewhere else, or
+// explicitly taken off sharing, which is remembered as 'off' rather than as a
+// missing value so that it is not undone by the default.
 function resolveSyncUrl(){
   const q=new URLSearchParams(location.search).get('sync');
-  if(q!==null){
-    if(q) localStorage.setItem('vtcSyncUrl',q.replace(/\/+$/,''));
-    else localStorage.removeItem('vtcSyncUrl');
-  }
-  return localStorage.getItem('vtcSyncUrl')||SYNC_DEFAULT;
+  if(q!==null) localStorage.setItem('vtcSyncUrl',q?q.replace(/\/+$/,''):'off');
+  const stored=localStorage.getItem('vtcSyncUrl');
+  if(stored==='off') return '';
+  return stored||SYNC_DEFAULT;
 }
 const SYNC=resolveSyncUrl();
+
+/* ------------------------------ local state ------------------------------ */
 function tsKey(day,cat,i){return `vtc:t:${day}:${cat}:${i}`}
 function getCheck(day,cat,i){return localStorage.getItem(storageKey(day,cat,i))==='1'}
 function getTs(day,cat,i){return Number(localStorage.getItem(tsKey(day,cat,i)))||0}
@@ -348,24 +363,91 @@ function clearLocal(day,cat,i){
 }
 function readQueue(){try{return JSON.parse(localStorage.getItem(QUEUE_KEY))||[]}catch(e){return []}}
 function writeQueue(q){localStorage.setItem(QUEUE_KEY,JSON.stringify(q.slice(-1000)))}
+
+/* --------------------------------- boards -------------------------------- */
+function rowsToTree(rows){
+  const tree={};
+  (rows||[]).forEach(r=>{
+    const parts=String(r.item||'').split('/');
+    if(parts.length!==3) return;
+    const [day,cat,i]=parts;
+    tree[day]=tree[day]||{};
+    tree[day][cat]=tree[day][cat]||{};
+    tree[day][cat][i]={v:Number(r.v)?1:0,t:Number(r.t)||0};
+  });
+  return tree;
+}
+function supabaseBoard(url){
+  const key=url.searchParams.get('key')||SUPABASE_KEY;
+  const name=url.searchParams.get('board')||BOARD_ID;
+  if(!key) return {needsKey:true};
+  const rest=`${url.origin}/rest/v1`;
+  const headers={apikey:key,Authorization:`Bearer ${key}`,'Content-Type':'application/json'};
+  const ok=r=>r.ok?r:Promise.reject(new Error('HTTP '+r.status));
+  const rpc=(fn,body)=>fetch(`${rest}/rpc/${fn}`,{method:'POST',headers,body:JSON.stringify(body)}).then(ok);
+  const rows=query=>fetch(`${rest}/vtc_checks?board=eq.${encodeURIComponent(name)}&${query}`,{headers}).then(ok).then(r=>r.json());
+  return {
+    live:'poll',
+    put:(path,body)=>rpc('vtc_set',{p_board:name,p_item:path,p_v:body.v,p_t:body.t}),
+    get:path=>rows(`item=eq.${encodeURIComponent(path)}&select=v,t`).then(r=>r[0]||null),
+    snapshot:()=>rows('select=item,v,t').then(rowsToTree),
+    resetDay:(day,items)=>rpc('vtc_set_many',{p_board:name,p_rows:items})
+  };
+}
+function firebaseBoard(address){
+  const ok=r=>r.ok?r:Promise.reject(new Error('HTTP '+r.status));
+  const write=(path,body)=>fetch(`${address}/${path}.json`,
+    {method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(ok);
+  return {
+    live:'stream',
+    address,
+    put:write,
+    get:path=>fetch(`${address}/${path}.json`).then(ok).then(r=>r.json()),
+    snapshot:()=>fetch(`${address}.json`).then(ok).then(r=>r.json()),
+    resetDay:(day,items)=>{
+      const tree={};
+      items.forEach(it=>{
+        const [,cat,i]=it.item.split('/');
+        tree[cat]=tree[cat]||{};
+        tree[cat][i]={v:it.v,t:it.t};
+      });
+      return write(day,tree);
+    }
+  };
+}
+function makeBoard(address){
+  if(!address) return null;
+  let url;
+  try{url=new URL(address)}catch(e){return null}
+  // Supabase is recognised by its own domain, by a key travelling with the
+  // address, or by the REST path, so a self-hosted instance works too.
+  const supabase=/(^|\.)supabase\.(co|in|net)$/i.test(url.hostname)
+    ||url.searchParams.has('key')
+    ||/\/rest\/v1/.test(url.pathname);
+  return supabase?supabaseBoard(url):firebaseBoard(address);
+}
+const BOARD=makeBoard(SYNC);
+
+/* -------------------------------- plumbing ------------------------------- */
 function setSyncState(state){
   const chip=document.getElementById('syncChip');
   const text=document.getElementById('syncText');
   if(!chip) return;
   chip.classList.remove('is-live','is-offline');
-  if(!SYNC){text.textContent='This device only';return}
-  if(state==='live'){chip.classList.add('is-live');text.textContent='Shared \u00b7 live'}
-  else if(state==='connecting'){text.textContent='Shared \u00b7 connecting\u2026'}
+  if(!BOARD){text.textContent='This device only';return}
+  if(BOARD.needsKey){chip.classList.add('is-offline');text.textContent='Board needs a key';return}
+  if(state==='live'){chip.classList.add('is-live');text.textContent='Shared · live'}
+  else if(state==='connecting'){text.textContent='Shared · connecting…'}
   else{
     chip.classList.add('is-offline');
     const pending=readQueue().length;
-    text.textContent=pending?`Shared \u00b7 offline \u00b7 ${pending} waiting`:'Shared \u00b7 offline';
+    text.textContent=pending?`Shared · offline · ${pending} waiting`:'Shared · offline';
   }
 }
 function sendOp(op){
-  if(!SYNC) return Promise.resolve();
-  return fetch(`${SYNC}/${op.p}.json`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(op.b)})
-    .then(r=>{if(!r.ok)throw new Error('HTTP '+r.status);setSyncState('live')})
+  if(!BOARD||BOARD.needsKey) return Promise.resolve();
+  return BOARD.put(op.p,op.b)
+    .then(()=>setSyncState('live'))
     .catch(()=>{const q=readQueue();q.push(op);writeQueue(q);setSyncState('offline')});
 }
 // A queued write must never clobber something newer that landed while we were
@@ -379,8 +461,7 @@ function flushQueue(){
   Object.values(newest).forEach(op=>{
     const [day,cat,i]=op.p.split('/');
     if(Number(op.b.t)<getTs(day,cat,i)) return;            // already superseded on this device
-    fetch(`${SYNC}/${op.p}.json`)
-      .then(r=>r.ok?r.json():Promise.reject(new Error('HTTP '+r.status)))
+    BOARD.get(op.p)
       .then(remote=>{
         if(remote&&Number(remote.t)>Number(op.b.t)){        // board is newer: take theirs
           applyRemote([day,cat,i],remote);
@@ -400,8 +481,10 @@ function pushCheck(day,cat,i,v,t){
   pushed[path]=t;
   sendOp({p:path,b:{v:v?1:0,t}});
 }
-// A whole-day write keeps reset last-write-wins without needing tombstones.
-function pushDay(day,value){sendOp({p:day,b:value})}
+function pushDay(day,items){
+  if(!BOARD||BOARD.needsKey) return;
+  BOARD.resetDay(day,items).then(()=>setSyncState('live')).catch(()=>setSyncState('offline'));
+}
 let renderQueued=false;
 function renderSoon(){
   if(renderQueued) return;
@@ -427,7 +510,7 @@ function applyRemote(path,data){
   if(t>=getTs(day,cat,i)) writeLocal(day,cat,i,data.v===1||data.v===true,t);
 }
 // Anything ticked here that the board has not seen (or has an older copy of)
-// goes up on connect, so offline ticks are never silently lost.
+// goes up, so ticks made offline are never silently lost.
 function mergeUp(remote){
   EVENT_DAYS.forEach(day=>catsFor(day.id).forEach(cat=>cat.items.forEach((_,i)=>{
     const local=getCheck(day.id,cat.id,i);
@@ -437,6 +520,18 @@ function mergeUp(remote){
     if(!node||localTs>(Number(node.t)||0)) pushCheck(day.id,cat.id,i,local,localTs);
   })));
 }
+function takeSnapshot(tree){
+  applyRemote([],tree||{});
+  mergeUp(tree||{});
+  renderSoon();
+}
+
+/* ------------------------------ staying current -------------------------- */
+/* A dropped connection does not always raise an error: it can stay open and
+   simply go quiet, which is what a phone moving between Wi-Fi and mobile data
+   looks like. So nothing depends on connection events alone - queued writes
+   are retried on a timer, and a silent stream is reopened. */
+let stream=null,lastStreamEvent=0;
 function onStreamEvent(raw){
   let msg;
   try{msg=JSON.parse(raw)}catch(e){return}
@@ -446,16 +541,8 @@ function onStreamEvent(raw){
   if(!path.length) mergeUp(msg.data);
   renderSoon();
 }
-/* A dropped stream does not always raise an error: the connection can stay open
-   and simply go quiet, which is what a phone moving between Wi-Fi and mobile
-   data looks like. So recovery never depends on stream events alone - a timer
-   retries queued writes, and a silent stream is reopened to pull a fresh
-   snapshot. The database sends keep-alives, which reset the watchdog. */
-const RETRY_MS=15000;
-const STREAM_SILENCE_MS=60000;
-let stream=null,lastStreamEvent=0;
 function openStream(){
-  stream=new EventSource(`${SYNC}.json`);
+  stream=new EventSource(`${BOARD.address}.json`);
   lastStreamEvent=Date.now();
   const mark=()=>{lastStreamEvent=Date.now()};
   stream.addEventListener('put',e=>{mark();onStreamEvent(e.data)});
@@ -468,35 +555,43 @@ function reopenStream(){
   if(stream) stream.close();
   openStream();
 }
+function poll(){
+  return BOARD.snapshot()
+    .then(tree=>{takeSnapshot(tree);setSyncState('live')})
+    .catch(()=>setSyncState('offline'));
+}
+// force is used when something says the network is back (the browser's own
+// online event, or the app being brought to the front): then it is worth
+// reaching out immediately rather than waiting for the next tick.
+function catchUp(force){
+  if(readQueue().length) flushQueue();
+  if(BOARD.live==='stream'){
+    if(force||Date.now()-lastStreamEvent>STREAM_SILENCE_MS) reopenStream();
+  } else if(force) poll();
+}
 // Setting the board from the app means no code change and no redeploy: paste
 // the address on one device, then send that device's link to the others.
 function editBoard(){
-  const current=localStorage.getItem('vtcSyncUrl')||SYNC_DEFAULT;
+  const stored=localStorage.getItem('vtcSyncUrl');
+  const current=stored==='off'?'':(stored||SYNC_DEFAULT);
   const entered=prompt(
     'Shared board address.\n\nPaste one to share check-offs with the other VTCs, '+
-    'or clear it to keep this device to itself.\n\nTo add another device, send it this page\u2019s link with ?sync= and the same address.',
+    'or clear it to keep this device to itself.\n\nTo add another device, send it this page’s link with ?sync= and the same address.',
     current);
   if(entered===null) return;
   const cleaned=entered.trim().replace(/\/+$/,'');
-  if(cleaned) localStorage.setItem('vtcSyncUrl',cleaned);
-  else localStorage.removeItem('vtcSyncUrl');
+  localStorage.setItem('vtcSyncUrl',cleaned||'off');
   location.href=location.pathname;   // drop any ?sync= so the stored one is used
 }
 function startSync(){
   document.getElementById('syncChip').onclick=editBoard;
-  if(!SYNC){setSyncState('local');return}
+  if(!BOARD||BOARD.needsKey){setSyncState(BOARD?'offline':'local');return}
   setSyncState('connecting');
-  openStream();
-  setInterval(()=>{
-    if(readQueue().length) flushQueue();
-    if(Date.now()-lastStreamEvent>STREAM_SILENCE_MS) reopenStream();
-  },RETRY_MS);
-  window.addEventListener('online',()=>{reopenStream();flushQueue()});
-  document.addEventListener('visibilitychange',()=>{
-    if(document.hidden) return;
-    if(readQueue().length) flushQueue();
-    if(Date.now()-lastStreamEvent>STREAM_SILENCE_MS) reopenStream();
-  });
+  if(BOARD.live==='stream') openStream();
+  else{poll();setInterval(poll,POLL_MS)}
+  setInterval(()=>catchUp(false),RETRY_MS);
+  window.addEventListener('online',()=>catchUp(true));
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden) catchUp(true)});
 }
 
 /* ------------------------------- next up --------------------------------- */
@@ -641,17 +736,17 @@ document.getElementById('runHead').onkeydown=e=>{if(e.key==='Enter'||e.key===' '
 document.getElementById('expandIncomplete').onclick=()=>{catsFor(currentDay).forEach(cat=>{const done=cat.items.filter((_,i)=>getCheck(currentDay,cat.id,i)).length;localStorage.setItem(collapsedKey(currentDay,cat.id),done===cat.items.length?'1':'0')});render()};
 document.getElementById('collapseComplete').onclick=()=>{catsFor(currentDay).forEach(cat=>{const done=cat.items.filter((_,i)=>getCheck(currentDay,cat.id,i)).length;if(done===cat.items.length)localStorage.setItem(collapsedKey(currentDay,cat.id),'1')});render()};
 document.getElementById('resetDay').onclick=()=>{
-  if(!confirm(SYNC?'Reset all checks for this day, for everyone sharing this board?':'Reset all checks for this day?')) return;
+  const shared=BOARD&&!BOARD.needsKey;
+  if(!confirm(shared?'Reset all checks for this day, for everyone sharing this board?':'Reset all checks for this day?')) return;
   const now=Date.now();
-  const dayValue={};
-  catsFor(currentDay).forEach(cat=>{
-    dayValue[cat.id]={};
-    cat.items.forEach((_,i)=>{
-      if(SYNC){writeLocal(currentDay,cat.id,i,false,now);dayValue[cat.id][i]={v:0,t:now}}
-      else clearLocal(currentDay,cat.id,i);
-    });
-  });
-  if(SYNC) pushDay(currentDay,dayValue);
+  const items=[];
+  catsFor(currentDay).forEach(cat=>cat.items.forEach((_,i)=>{
+    if(shared){
+      writeLocal(currentDay,cat.id,i,false,now);
+      items.push({item:`${currentDay}/${cat.id}/${i}`,v:0,t:now});
+    } else clearLocal(currentDay,cat.id,i);
+  }));
+  if(shared) pushDay(currentDay,items);
   render();
 };
 

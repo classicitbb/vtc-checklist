@@ -6,7 +6,7 @@ This is a GitHub Pages-ready Progressive Web App.
 
 - Works as an installable PWA.
 - Saves checklist progress locally on each device using `localStorage`.
-- Optionally shares check-offs between devices in real time (see below).
+- Shares check-offs between devices through a shared board (see below).
 - Caches the app for offline use using a service worker.
 - Allows users to move between Thursday, Saturday, and Lord's Day checklists.
 - Shows progress per category and per day.
@@ -54,79 +54,87 @@ Run sheet for Lord's Day:
 
 ## Sharing check-offs between devices
 
-Out of the box the app is local to one device. Point it at a Firebase Realtime
-Database and every device sharing that address works from the same board: a tick
-on one phone appears on the others in about a second.
+Ticks are shared through a **board**. Every device pointed at the same board
+works from the same checklist: a tick on one phone shows on the others.
 
-It uses the database REST API and its server-sent-events stream directly, so
-there is no SDK to download and the app still works with no database configured.
+Two kinds of board are understood, and neither loads an SDK:
 
-### One-time setup
+| Board | How it is recognised | Updates |
+| --- | --- | --- |
+| Supabase | a `*.supabase.co` address, a `key=` on the address, or a `/rest/v1` path | polled every 4 seconds |
+| Firebase Realtime Database | anything else | pushed instantly over the REST event stream |
 
-1. Create a free project at <https://console.firebase.google.com>.
-2. **Build > Realtime Database > Create Database**. Pick a location and start in
-   locked mode.
-3. Open the **Rules** tab and allow just the one board, using a long random
-   segment as the shared key:
+`SYNC_DEFAULT` in `index.html` is set to the Supabase project
+`dzsalnvmlvjoatryhqfz`. It still needs that project's **publishable (anon)
+key** before it can talk to it, which is the one piece not in this repository.
 
-   ```json
-   {
-     "rules": {
-       "boards": {
-         "vtc-sep2026-CHANGE-THIS-TO-SOMETHING-RANDOM": {
-           ".read": true,
-           ".write": true
-         }
-       }
-     }
-   }
-   ```
+### Setting up the Supabase board
 
-4. The board address is the database URL plus that path, for example
-   `https://your-project-default-rtdb.firebaseio.com/boards/vtc-sep2026-xxxx`.
-5. Put the address into the app. Either tap the status chip beside the buttons
-   and paste it in, or open the app once with the address attached:
+1. In the Supabase dashboard open **SQL Editor** and run [`supabase.sql`](supabase.sql).
+   It creates the `vtc_checks` table, turns on row level security, and adds the
+   two functions the app writes through.
+2. Open **Project Settings > API** and copy the **anon / publishable** key.
+3. Either paste the key into `SUPABASE_KEY` in `index.html`, or put it on the
+   address and hand that to each device:
 
    ```
-   https://your-pages-site/?sync=https://your-project-default-rtdb.firebaseio.com/boards/vtc-sep2026-xxxx
+   https://your-pages-site/?sync=https://dzsalnvmlvjoatryhqfz.supabase.co%3Fkey%3DYOUR_ANON_KEY
    ```
 
-   The device remembers it, so later visits (and the installed PWA) stay on that
-   board. To add another device, send it the same link. To take a device off the
-   board, tap the chip and clear the address (or use `?sync=` with nothing after
-   it).
+   The simplest route on a phone is to tap the status chip beside the buttons
+   and paste `https://dzsalnvmlvjoatryhqfz.supabase.co?key=YOUR_ANON_KEY`.
 
-Alternatively set `SYNC_DEFAULT` in `index.html` so every install shares
-automatically. Note this repository is public, so anyone reading it would then
-have the board address. Sending the `?sync=` link privately to the VTC team
-keeps the address off the public site.
+The key is designed to be shipped in client apps: it is the row level security
+policies, not secrecy, that decide what it can do. Here it can read the board
+and call the two functions. It cannot insert, update or delete rows directly,
+so it cannot be used to write anything the app would not write. It does,
+however, reach every table in that project, so use a project whose other tables
+have row level security enabled.
+
+Change `BOARD_ID` to start a fresh board, for example for the next occasion.
+
+### Using a Firebase Realtime Database instead
+
+Point `SYNC_DEFAULT` (or `?sync=`) at a database path such as
+`https://your-project-default-rtdb.firebaseio.com/boards/vtc-sep2026`, and
+restrict the rules to that one path:
+
+```json
+{
+  "rules": {
+    "boards": {
+      "vtc-sep2026-CHANGE-THIS": { ".read": true, ".write": true }
+    }
+  }
+}
+```
+
+Updates then arrive instantly rather than every few seconds. Anyone with that
+address can read and change ticks, so treat it like a shared password.
 
 ### What is stored
 
-Only tick state: `{v:0|1, t:<epoch ms>}` per checklist item, under
+Only tick state: `{v:0|1, t:<epoch ms>}` per checklist item, keyed by
 `<day>/<category>/<item index>`. No checklist wording, names or notes leave the
-device, and the checklist itself still lives in `index.html`.
+device.
 
 ### How it behaves
 
-- **Newest tick wins.** Each write carries a timestamp; older writes never
-  overwrite newer ones, including a write queued while a device was offline.
-- **Offline is fine.** Ticks are saved locally and queued. The chip by the
-  buttons reads `Shared · offline · N waiting`, then flushes on reconnect.
-  Before a queued tick is sent it is checked against the board, so it cannot
-  clobber a change someone else made in the meantime.
+- **Newest tick wins.** Every write carries a timestamp and older writes are
+  discarded, on the server for Supabase and on the client for Firebase.
+- **Offline is fine.** Ticks are saved locally and queued; the chip reads
+  `Shared · offline · N waiting` and flushes on reconnect. Each queued tick is
+  checked against the board before it is sent, so it cannot overwrite a change
+  someone else made in the meantime.
 - **A quiet connection is treated as a dropped one.** Queued writes are retried
-  on a timer and the stream is reopened if it goes silent, because a phone
-  moving between Wi-Fi and mobile data often leaves a connection open but dead.
+  on a timer and a silent stream is reopened, because a phone moving between
+  Wi-Fi and mobile data often leaves a connection open but dead.
 - **Reset clears the board.** With sharing on, "Reset this day" wipes that day
   for everyone and says so before it does.
-- **The chip shows the state**: `This device only`, `Shared · connecting…`,
-  `Shared · live`, or `Shared · offline`. Tapping it sets or clears the board
-  address, so a device can be pointed at a board without a code change.
-
-Anyone with the board address can read and change ticks, so treat it like a
-shared password. For per-user accounts instead, the same code shape works with
-Firebase Auth or Supabase, with more setup.
+- **The chip shows the state**: `This device only`, `Board needs a key`,
+  `Shared · connecting…`, `Shared · live`, or `Shared · offline`. Tapping it
+  sets, changes or clears the board address on that device; clearing it is
+  remembered, so the device stays off sharing.
 
 ## Deploy to GitHub Pages
 
@@ -152,7 +160,7 @@ Edit `index.html`:
 - Dates and meeting times: the `EVENT_DAYS` array.
 - Run sheet items: the `TWO_MEETING_RUN` array and the `SCHEDULES` object.
 - Time zones: the `LOCAL_*` and `HOST_TZ` constants at the top of the script.
-- Shared board address: the `SYNC_DEFAULT` constant.
+- Shared board: the `SYNC_DEFAULT`, `SUPABASE_KEY` and `BOARD_ID` constants.
 
 Run sheet and meeting times are written as Barbados wall clock in 24-hour form,
 for example `'13:30'`.
