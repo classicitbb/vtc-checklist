@@ -84,14 +84,17 @@ there is no SDK to download and the app still works with no database configured.
 
 4. The board address is the database URL plus that path, for example
    `https://your-project-default-rtdb.firebaseio.com/boards/vtc-sep2026-xxxx`.
-5. Open the app once on each device with the address attached:
+5. Put the address into the app. Either tap the status chip beside the buttons
+   and paste it in, or open the app once with the address attached:
 
    ```
    https://your-pages-site/?sync=https://your-project-default-rtdb.firebaseio.com/boards/vtc-sep2026-xxxx
    ```
 
    The device remembers it, so later visits (and the installed PWA) stay on that
-   board. `?sync=` with nothing after it puts a device back to local only.
+   board. To add another device, send it the same link. To take a device off the
+   board, tap the chip and clear the address (or use `?sync=` with nothing after
+   it).
 
 Alternatively set `SYNC_DEFAULT` in `index.html` so every install shares
 automatically. Note this repository is public, so anyone reading it would then
@@ -118,7 +121,8 @@ device, and the checklist itself still lives in `index.html`.
 - **Reset clears the board.** With sharing on, "Reset this day" wipes that day
   for everyone and says so before it does.
 - **The chip shows the state**: `This device only`, `Shared · connecting…`,
-  `Shared · live`, or `Shared · offline`.
+  `Shared · live`, or `Shared · offline`. Tapping it sets or clears the board
+  address, so a device can be pointed at a board without a code change.
 
 Anyone with the board address can read and change ticks, so treat it like a
 shared password. For per-user accounts instead, the same code shape works with

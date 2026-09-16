@@ -51,7 +51,8 @@ p{margin:0;color:var(--muted);font-size:14px}
 .pill.active .pillTimes{color:rgba(255,255,255,.82)}
 .btn{border-radius:999px}
 .btn.danger{color:var(--danger)}
-.syncChip{display:inline-flex;align-items:center;gap:6px;padding:8px 12px;border-radius:999px;border:1px solid var(--line);background:var(--card);font-size:13px;font-weight:650;color:var(--muted);white-space:nowrap}
+.syncChip{display:inline-flex;align-items:center;gap:6px;padding:8px 12px;border-radius:999px;border:1px solid var(--line);background:var(--card);font-size:13px;font-weight:650;color:var(--muted);white-space:nowrap;cursor:pointer;font-family:inherit}
+.syncChip:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
 .syncChip .dot{width:8px;height:8px;border-radius:50%;background:var(--muted);flex:none}
 .syncChip.is-live{color:var(--ok)}.syncChip.is-live .dot{background:var(--ok)}
 .syncChip.is-offline{color:var(--warn)}.syncChip.is-offline .dot{background:var(--warn)}
@@ -129,7 +130,7 @@ p{margin:0;color:var(--muted);font-size:14px}
     </div>
   </section>
 
-  <div class="toolbar"><button class="btn" id="expandIncomplete">Expand incomplete</button><button class="btn" id="collapseComplete">Collapse complete</button><button class="btn danger" id="resetDay">Reset this day</button><span class="syncChip" id="syncChip" title="Sharing status"><span class="dot"></span><span id="syncText">This device only</span></span></div>
+  <div class="toolbar"><button class="btn" id="expandIncomplete">Expand incomplete</button><button class="btn" id="collapseComplete">Collapse complete</button><button class="btn danger" id="resetDay">Reset this day</button><button class="syncChip" id="syncChip" title="Set or change the shared board"><span class="dot"></span><span id="syncText">This device only</span></button></div>
   <div id="categories"></div>
   <div class="footer">Use the day buttons to go back and review previous days. Completed categories can be collapsed automatically.</div>
 </main>
@@ -467,7 +468,22 @@ function reopenStream(){
   if(stream) stream.close();
   openStream();
 }
+// Setting the board from the app means no code change and no redeploy: paste
+// the address on one device, then send that device's link to the others.
+function editBoard(){
+  const current=localStorage.getItem('vtcSyncUrl')||SYNC_DEFAULT;
+  const entered=prompt(
+    'Shared board address.\n\nPaste one to share check-offs with the other VTCs, '+
+    'or clear it to keep this device to itself.\n\nTo add another device, send it this page\u2019s link with ?sync= and the same address.',
+    current);
+  if(entered===null) return;
+  const cleaned=entered.trim().replace(/\/+$/,'');
+  if(cleaned) localStorage.setItem('vtcSyncUrl',cleaned);
+  else localStorage.removeItem('vtcSyncUrl');
+  location.href=location.pathname;   // drop any ?sync= so the stored one is used
+}
 function startSync(){
+  document.getElementById('syncChip').onclick=editBoard;
   if(!SYNC){setSyncState('local');return}
   setSyncState('connecting');
   openStream();
