@@ -1,4 +1,4 @@
-const CACHE_NAME = 'vtc-checklist-pwa-v2';
+const CACHE_NAME = 'vtc-checklist-pwa-v3';
 const APP_ASSETS = [
   './',
   './index.html',
@@ -25,6 +25,12 @@ self.addEventListener('activate', event => {
 
 self.addEventListener('fetch', event => {
   if (event.request.method !== 'GET') return;
+  // Only the app's own files are cached. Shared board traffic (another origin)
+  // and the event stream must always go to the network, or devices would read
+  // each other's ticks out of a stale cache.
+  const url = new URL(event.request.url);
+  if (url.origin !== self.location.origin) return;
+  if ((event.request.headers.get('accept') || '').includes('text/event-stream')) return;
   event.respondWith(
     caches.match(event.request).then(cached => {
       if (cached) return cached;
