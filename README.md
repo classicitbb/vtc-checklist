@@ -38,11 +38,17 @@ Run sheet for Thursday and Saturday:
 | 1:00 PM | Meeting 2: Seated and settled |
 | 1:30 PM | Meeting 2: Commences (be ready for meeting to start early) |
 
-Lord's Day has one meeting at 12:30 PM. Its run sheet keeps the same lead-in
-intervals ahead of the meeting (sound checkers 10:00 AM, VTCs join Zoom
-10:30 AM, hall open 11:00 AM, sound checking complete 11:15 AM, seated and
-settled 11:45 AM). Adjust `SCHEDULES.lord` in `index.html` if the published
-Lord's Day run sheet differs.
+Run sheet for Lord's Day:
+
+| Time | Item |
+| --- | --- |
+| 10:00 AM | Sound checkers join Zoom |
+| 10:00 AM | VTCs arrive at venue and complete checklists |
+| 10:30 AM | VTCs join Zoom and sound checking begins |
+| 11:00 AM | Hall open |
+| 11:15 AM | Sound checking complete and main session open |
+| 11:45 AM | Meeting 1: Seated and settled |
+| 12:30 PM | Meeting 1: Commences (be ready for meeting to start early) |
 
 ## Important limitation
 
