@@ -67,7 +67,8 @@ p{margin:0;color:var(--muted);font-size:14px}
 
 /* Run sheet */
 .run{background:var(--card);border:1px solid var(--line);border-radius:16px;margin:12px 0;box-shadow:var(--shadow);overflow:hidden}
-.runHead{display:flex;justify-content:space-between;gap:10px;align-items:center;padding:14px}
+.runHead{display:flex;justify-content:space-between;gap:10px;align-items:center;padding:14px;cursor:pointer;user-select:none}
+.runHead:focus-visible{outline:2px solid var(--blue);outline-offset:-2px}
 .runTitle{font-size:17px;font-weight:750}
 .runMeta{font-size:13px;color:var(--muted);white-space:nowrap}
 .runRow{display:grid;grid-template-columns:82px 1fr auto;gap:10px;align-items:baseline;padding:11px 14px;border-top:1px solid var(--line)}
@@ -117,9 +118,11 @@ p{margin:0;color:var(--muted);font-size:14px}
   </section>
 
   <section class="run">
-    <div class="runHead"><div class="runTitle">Run sheet</div><div class="runMeta" id="runMeta"></div></div>
-    <div id="runRows"></div>
-    <div class="runNote">Bold times are yours (Barbados). New York time on the right.</div>
+    <div class="runHead" id="runHead" role="button" tabindex="0" aria-expanded="true" aria-controls="runBody"><div class="runTitle">Run sheet</div><div class="runMeta" id="runMeta"></div></div>
+    <div id="runBody">
+      <div id="runRows"></div>
+      <div class="runNote">Bold times are yours (Barbados). New York time on the right.</div>
+    </div>
   </section>
 
   <div class="toolbar"><button class="btn" id="expandIncomplete">Expand incomplete</button><button class="btn" id="collapseComplete">Collapse complete</button><button class="btn danger" id="resetDay">Reset this day</button></div>
@@ -285,6 +288,7 @@ function fmtHostTime(date){return date.toLocaleTimeString('en-US',{timeZone:HOST
 function fmtShortDate(date){return date.toLocaleDateString('en-US',{timeZone:LOCAL_TZ,weekday:'short',month:'short',day:'numeric'})}
 function todayLocalISO(){return new Date().toLocaleDateString('en-CA',{timeZone:LOCAL_TZ})}
 function scheduleFor(dayId){return SCHEDULES[dayId]||[]}
+const RUN_COLLAPSED_KEY='vtc:runCollapsed';
 function countdown(ms){
   const mins=Math.round(ms/60000);
   if(mins<1) return 'in under a minute';
@@ -387,7 +391,10 @@ function renderRunSheet(day){
     row.querySelector('.runText').textContent=entry.text;
     rows.appendChild(row);
   });
-  document.getElementById('runMeta').textContent=`${LOCAL_TZ_LABEL} · ${HOST_TZ_LABEL}`;
+  const collapsed=localStorage.getItem(RUN_COLLAPSED_KEY)==='1';
+  document.getElementById('runBody').classList.toggle('hidden',collapsed);
+  document.getElementById('runHead').setAttribute('aria-expanded',collapsed?'false':'true');
+  document.getElementById('runMeta').textContent=`${LOCAL_TZ_LABEL} · ${HOST_TZ_LABEL} ${collapsed?'▸':'▾'}`;
 }
 function render(){
   renderTabs();
@@ -432,6 +439,12 @@ function render(){
   document.getElementById('overallFill').style.width=pct(grandDone,grandTotal)+'%';
   document.getElementById('overallText').textContent=`${grandDone} out of ${grandTotal} complete — ${pct(grandDone,grandTotal)}% complete`;
 }
+function toggleRunSheet(){
+  localStorage.setItem(RUN_COLLAPSED_KEY,localStorage.getItem(RUN_COLLAPSED_KEY)==='1'?'0':'1');
+  renderRunSheet(EVENT_DAYS.find(d=>d.id===currentDay));
+}
+document.getElementById('runHead').onclick=toggleRunSheet;
+document.getElementById('runHead').onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();toggleRunSheet()}};
 document.getElementById('expandIncomplete').onclick=()=>{catsFor(currentDay).forEach(cat=>{const done=cat.items.filter((_,i)=>localStorage.getItem(storageKey(currentDay,cat.id,i))==='1').length;localStorage.setItem(collapsedKey(currentDay,cat.id),done===cat.items.length?'1':'0')});render()};
 document.getElementById('collapseComplete').onclick=()=>{catsFor(currentDay).forEach(cat=>{const done=cat.items.filter((_,i)=>localStorage.getItem(storageKey(currentDay,cat.id,i))==='1').length;if(done===cat.items.length)localStorage.setItem(collapsedKey(currentDay,cat.id),'1')});render()};
 document.getElementById('resetDay').onclick=()=>{if(confirm('Reset all checks for this day?')){catsFor(currentDay).forEach(cat=>cat.items.forEach((_,i)=>localStorage.removeItem(storageKey(currentDay,cat.id,i))));render()}};
