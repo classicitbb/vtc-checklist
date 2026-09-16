@@ -11,6 +11,7 @@ This is a GitHub Pages-ready Progressive Web App.
 - Shows progress per category and per day.
 - Automatically collapses completed categories.
 - Shows the run sheet for each day with Barbados times in bold and New York times on the right.
+- Run sheet collapses and expands by tapping its header; the choice is remembered on the device.
 - Shows a live "next up" strip with a countdown to the next scheduled item.
 
 ## Event dates and times
