@@ -4,30 +4,182 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>VTC Remote Venue Checklist</title>
-<meta name="theme-color" content="#1b4d89" />
+<meta name="theme-color" content="#1b4d89" media="(prefers-color-scheme: light)" />
+<meta name="theme-color" content="#0d1520" media="(prefers-color-scheme: dark)" />
 <meta name="description" content="Installable offline checklist app for VTC remote venue auditorium gatherings." />
 <link rel="manifest" href="manifest.json" />
 <link rel="apple-touch-icon" href="icons/icon-192.png" />
 <style>
-:root{--bg:#f6f7f9;--card:#fff;--ink:#17202a;--muted:#667085;--line:#e5e7eb;--ok:#147a3c;--warn:#995c00;--blue:#1b4d89;--shadow:0 10px 30px rgba(16,24,40,.08)}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif}header{position:sticky;top:0;background:#fff;z-index:10;border-bottom:1px solid var(--line);padding:14px 16px}h1{font-size:20px;margin:0 0 4px}p{margin:0;color:var(--muted);font-size:14px}.wrap{max-width:950px;margin:0 auto;padding:14px}.toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:12px 0}.pill,.btn{border:1px solid var(--line);background:#fff;border-radius:999px;padding:9px 12px;font-weight:650;color:var(--ink);cursor:pointer}.pill.active{background:var(--blue);color:#fff;border-color:var(--blue)}.btn.danger{color:#b42318}.summary{background:#fff;border:1px solid var(--line);border-radius:16px;padding:14px;margin:12px 0;box-shadow:var(--shadow)}.bar{height:12px;background:#eef2f6;border-radius:99px;overflow:hidden;margin-top:10px}.fill{height:100%;width:0;background:var(--ok);transition:.25s}.cat{background:var(--card);border:1px solid var(--line);border-radius:16px;margin:12px 0;box-shadow:var(--shadow);overflow:hidden}.catHead{display:flex;justify-content:space-between;gap:10px;align-items:center;padding:14px;cursor:pointer}.catTitle{font-size:17px;font-weight:750}.catMeta{font-size:13px;color:var(--muted);white-space:nowrap}.cat.done .catHead{background:#edf7f0}.items{border-top:1px solid var(--line);padding:6px 0}.item{display:grid;grid-template-columns:32px 1fr;gap:8px;padding:12px 14px;border-top:1px solid #f1f3f5}.item:first-child{border-top:0}.item input{width:22px;height:22px;margin-top:1px}.item label{line-height:1.35;font-size:15px}.note{color:var(--muted);font-size:13px;margin-top:4px}.hidden{display:none!important}.footer{padding:20px;color:var(--muted);font-size:12px;text-align:center}@media(min-width:720px){h1{font-size:24px}.item label{font-size:16px}}
+:root{
+  --bg:#f6f7f9;--card:#fff;--ink:#17202a;--muted:#667085;--line:#e5e7eb;--soft:#eef2f6;
+  --ok:#147a3c;--ok-soft:#edf7f0;--warn:#995c00;--warn-soft:#fff6e5;--danger:#b42318;
+  --blue:#1b4d89;--blue-soft:#eaf1f9;
+  --shadow:0 10px 30px rgba(16,24,40,.08);
+}
+@media (prefers-color-scheme:dark){
+  :root{
+    --bg:#0d1520;--card:#141f2e;--ink:#e8edf4;--muted:#93a2b5;--line:#243447;--soft:#1b2838;
+    --ok:#4ec07f;--ok-soft:#142a1e;--warn:#e0a53c;--warn-soft:#2a2113;--danger:#f2837a;
+    --blue:#5d9bdd;--blue-soft:#15263a;
+    --shadow:0 10px 30px rgba(0,0,0,.35);
+  }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;-webkit-text-size-adjust:100%}
+header{position:sticky;top:0;background:var(--card);z-index:10;border-bottom:1px solid var(--line);padding:12px 16px calc(12px + env(safe-area-inset-bottom,0px) * 0)}
+header .head-inner{max-width:950px;margin:0 auto}
+h1{font-size:20px;margin:0 0 3px;letter-spacing:-.01em}
+p{margin:0;color:var(--muted);font-size:14px}
+.wrap{max-width:950px;margin:0 auto;padding:14px 14px 28px}
+
+/* Next up strip */
+.nextBar{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;margin-top:10px;padding:9px 12px;border-radius:12px;background:var(--blue-soft);border:1px solid var(--line)}
+.nextBar.is-live{background:var(--warn-soft)}
+.nextBar.is-done{background:var(--soft)}
+.nextLabel{font-size:11px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--blue)}
+.nextBar.is-live .nextLabel{color:var(--warn)}
+.nextBar.is-done .nextLabel{color:var(--muted)}
+.nextText{font-weight:700;font-size:15px;flex:1 1 180px;min-width:0}
+.nextWhen{font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+
+/* Day tabs */
+.toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:12px 0}
+.pill,.btn{border:1px solid var(--line);background:var(--card);border-radius:14px;padding:9px 13px;font-weight:650;color:var(--ink);cursor:pointer;font-family:inherit;font-size:14px;text-align:left;line-height:1.25}
+.pill{display:flex;flex-direction:column;gap:2px}
+.pill .pillTimes{font-size:12px;font-weight:600;color:var(--muted);font-variant-numeric:tabular-nums}
+.pill.active{background:var(--blue);color:#fff;border-color:var(--blue)}
+.pill.active .pillTimes{color:rgba(255,255,255,.82)}
+.btn{border-radius:999px}
+.btn.danger{color:var(--danger)}
+
+/* Day summary */
+.summary{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px;margin:12px 0;box-shadow:var(--shadow)}
+.sumTop{display:flex;justify-content:space-between;gap:12px;align-items:baseline;flex-wrap:wrap}
+.sumTitle{font-size:17px;font-weight:750}
+.sumDate{font-size:13px;color:var(--muted);white-space:nowrap}
+.badge{display:inline-block;margin-left:8px;padding:2px 8px;border-radius:999px;background:var(--ok-soft);color:var(--ok);font-size:11px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;vertical-align:middle}
+.meetLine{display:flex;justify-content:space-between;gap:12px;align-items:baseline;flex-wrap:wrap;margin-top:8px}
+.meetLocal{font-size:15px;font-weight:700;font-variant-numeric:tabular-nums}
+.meetLocal .meetName{font-weight:600;color:var(--muted);font-size:13px;margin-left:4px}
+.meetHost{font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+.bar{height:12px;background:var(--soft);border-radius:99px;overflow:hidden;margin-top:12px}
+.fill{height:100%;width:0;background:var(--ok);transition:width .25s}
+
+/* Run sheet */
+.run{background:var(--card);border:1px solid var(--line);border-radius:16px;margin:12px 0;box-shadow:var(--shadow);overflow:hidden}
+.runHead{display:flex;justify-content:space-between;gap:10px;align-items:center;padding:14px}
+.runTitle{font-size:17px;font-weight:750}
+.runMeta{font-size:13px;color:var(--muted);white-space:nowrap}
+.runRow{display:grid;grid-template-columns:82px 1fr auto;gap:10px;align-items:baseline;padding:11px 14px;border-top:1px solid var(--line)}
+.runTime{font-weight:750;font-size:15px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.runText{font-size:15px;line-height:1.35}
+.runHost{font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+.runRow.is-meeting .runText{font-weight:700}
+.runRow.is-past{opacity:.5}
+.runRow.is-past .runTime{text-decoration:line-through}
+.runRow.is-now{background:var(--warn-soft);box-shadow:inset 3px 0 0 var(--warn)}
+.runRow.is-next{background:var(--blue-soft);box-shadow:inset 3px 0 0 var(--blue)}
+.runNote{padding:11px 14px;border-top:1px solid var(--line);color:var(--muted);font-size:12px}
+
+/* Categories */
+.cat{background:var(--card);border:1px solid var(--line);border-radius:16px;margin:12px 0;box-shadow:var(--shadow);overflow:hidden}
+.catHead{display:flex;justify-content:space-between;gap:10px;align-items:center;padding:14px;cursor:pointer}
+.catTitle{font-size:17px;font-weight:750}
+.catMeta{font-size:13px;color:var(--muted);white-space:nowrap}
+.cat.done .catHead{background:var(--ok-soft)}
+.items{border-top:1px solid var(--line);padding:6px 0}
+.item{display:grid;grid-template-columns:32px 1fr;gap:8px;padding:12px 14px;border-top:1px solid var(--line)}
+.item:first-child{border-top:0}
+.item input{width:22px;height:22px;margin-top:1px;accent-color:var(--ok)}
+.item label{line-height:1.35;font-size:15px}
+.note{color:var(--muted);font-size:13px;margin-top:4px}
+.hidden{display:none!important}
+.footer{padding:20px;color:var(--muted);font-size:12px;text-align:center;line-height:1.5}
+@media(min-width:720px){h1{font-size:24px}.item label,.runText{font-size:16px}}
 </style>
 </head>
 <body>
-<header><h1>VTC Remote Venue Checklist</h1><p>Checklist app for auditorium gatherings. Progress is saved on this device.</p></header>
+<header>
+  <div class="head-inner">
+    <h1>VTC Remote Venue Checklist</h1>
+    <p>Checklist app for auditorium gatherings. Progress is saved on this device.</p>
+    <div class="nextBar" id="nextBar"><span class="nextLabel">Next</span><span class="nextText" id="nextText">—</span><span class="nextWhen" id="nextWhen"></span></div>
+  </div>
+</header>
 <main class="wrap">
   <div class="toolbar" id="dayTabs"></div>
-  <section class="summary"><strong id="dayTitle"></strong><p id="dayHint"></p><div class="bar"><div class="fill" id="overallFill"></div></div><p id="overallText" style="margin-top:8px"></p></section>
+
+  <section class="summary">
+    <div class="sumTop"><div class="sumTitle" id="dayTitle"></div><div class="sumDate" id="dayDate"></div></div>
+    <div id="dayMeetings"></div>
+    <div class="bar"><div class="fill" id="overallFill"></div></div>
+    <p id="overallText" style="margin-top:8px"></p>
+  </section>
+
+  <section class="run">
+    <div class="runHead"><div class="runTitle">Run sheet</div><div class="runMeta" id="runMeta"></div></div>
+    <div id="runRows"></div>
+    <div class="runNote">Bold times are yours (Barbados). New York time on the right.</div>
+  </section>
+
   <div class="toolbar"><button class="btn" id="expandIncomplete">Expand incomplete</button><button class="btn" id="collapseComplete">Collapse complete</button><button class="btn danger" id="resetDay">Reset this day</button></div>
   <div id="categories"></div>
   <div class="footer">Use the day buttons to go back and review previous days. Completed categories can be collapsed automatically.</div>
 </main>
 <script>
+/* ---------------------------------------------------------------------------
+   Time zones
+   Barbados (AST) is UTC-04:00 all year and never observes daylight saving, so
+   local wall-clock times can be anchored with a fixed offset. New York times
+   are derived from that instant, so they stay correct across EDT/EST.
+--------------------------------------------------------------------------- */
+const LOCAL_TZ = 'America/Barbados';
+const LOCAL_TZ_LABEL = 'Barbados';
+const LOCAL_UTC_OFFSET = '-04:00';
+const HOST_TZ = 'America/New_York';
+const HOST_TZ_LABEL = 'New York';
+
+/* ---------------------------------------------------------------------------
+   Event days. Times are Barbados wall clock in 24-hour form.
+--------------------------------------------------------------------------- */
 const EVENT_DAYS=[
- {id:'fri',label:'Friday',date:'2026-06-26',full:'Friday 26 June 2026'},
- {id:'sat',label:'Saturday',date:'2026-06-27',full:'Saturday 27 June 2026'},
- {id:'lord',label:"Lord's Day",date:'2026-06-28',full:"Lord's Day 28 June 2026"}
+ {id:'thu',label:'Thursday',date:'2026-09-17',full:'Thursday 17 September 2026',
+  meetings:[{name:'Meeting 1',time:'11:00'},{name:'Meeting 2',time:'13:30'}]},
+ {id:'sat',label:'Saturday',date:'2026-09-19',full:'Saturday 19 September 2026',
+  meetings:[{name:'Meeting 1',time:'11:00'},{name:'Meeting 2',time:'13:30'}]},
+ {id:'lord',label:"Lord's Day",date:'2026-09-20',full:"Lord's Day 20 September 2026",
+  meetings:[{name:'Meeting',time:'12:30'}]}
 ];
+
+/* ---------------------------------------------------------------------------
+   Run sheet per day. Thursday and Saturday are the published times. Lord's Day
+   keeps the same lead-in intervals ahead of its single 12:30 PM meeting.
+--------------------------------------------------------------------------- */
+const TWO_MEETING_RUN=[
+ {time:'08:30',text:'Sound checkers join Zoom'},
+ {time:'08:30',text:'VTCs arrive at venue and complete checklists'},
+ {time:'09:00',text:'VTCs join Zoom and sound checking begins'},
+ {time:'09:30',text:'Hall open'},
+ {time:'09:45',text:'Sound checking complete and main session open'},
+ {time:'10:15',text:'Meeting 1: Seated and settled',meeting:true},
+ {time:'11:00',text:'Meeting 1: Commences (Be ready for meeting to start early)',meeting:true},
+ {time:'13:00',text:'Meeting 2: Seated and settled',meeting:true},
+ {time:'13:30',text:'Meeting 2: Commences (Be ready for meeting to start early)',meeting:true}
+];
+const SCHEDULES={
+ thu:TWO_MEETING_RUN,
+ sat:TWO_MEETING_RUN,
+ lord:[
+  {time:'10:00',text:'Sound checkers join Zoom'},
+  {time:'10:00',text:'VTCs arrive at venue and complete checklists'},
+  {time:'10:30',text:'VTCs join Zoom and sound checking begins'},
+  {time:'11:00',text:'Hall open'},
+  {time:'11:15',text:'Sound checking complete and main session open'},
+  {time:'11:45',text:'Meeting: Seated and settled',meeting:true},
+  {time:'12:30',text:'Meeting: Commences (Be ready for meeting to start early)',meeting:true}
+ ]
+};
+
 const COMMON=[
  {id:'venue-pre',title:'Venue pre-occasion checklist',items:[
  'Seating set up with total number of chairs for all invitees and VTC. Small table beside VTC in Row 2 only if not distracting. All attendees visible on camera.',
@@ -125,18 +277,168 @@ const DAILY=[
  'No unmuting/speaking after meetings unless explicitly called upon.'
  ]}
 ];
-function catsFor(day){return [...COMMON,...DAILY].map(c=>({...c,items:[...c.items]}));}
+
+/* --------------------------------- time ---------------------------------- */
+function instantOf(dateISO,hhmm){return new Date(`${dateISO}T${hhmm}:00${LOCAL_UTC_OFFSET}`)}
+function fmtLocalTime(hhmm){const [h,m]=hhmm.split(':').map(Number);const suffix=h>=12?'PM':'AM';const hour=((h+11)%12)+1;return `${hour}:${String(m).padStart(2,'0')} ${suffix}`}
+function fmtHostTime(date){return date.toLocaleTimeString('en-US',{timeZone:HOST_TZ,hour:'numeric',minute:'2-digit'})}
+function fmtShortDate(date){return date.toLocaleDateString('en-US',{timeZone:LOCAL_TZ,weekday:'short',month:'short',day:'numeric'})}
+function todayLocalISO(){return new Date().toLocaleDateString('en-CA',{timeZone:LOCAL_TZ})}
+function scheduleFor(dayId){return SCHEDULES[dayId]||[]}
+function countdown(ms){
+  const mins=Math.round(ms/60000);
+  if(mins<1) return 'in under a minute';
+  if(mins<60) return `in ${mins}m`;
+  const hours=Math.floor(mins/60),rem=mins%60;
+  if(hours<24) return rem?`in ${hours}h ${rem}m`:`in ${hours}h`;
+  const days=Math.floor(hours/24),remH=hours%24;
+  return remH?`in ${days}d ${remH}h`:`in ${days}d`;
+}
+
+/* -------------------------------- storage -------------------------------- */
 function storageKey(day,cat,i){return `vtc:${day}:${cat}:${i}`}
 function collapsedKey(day,cat){return `vtc:${day}:${cat}:collapsed`}
-function defaultDay(){const now=new Date(); const today=now.toISOString().slice(0,10); let found=EVENT_DAYS.find(d=>d.date>=today); return found?found.id:EVENT_DAYS[EVENT_DAYS.length-1].id;}
-let currentDay=localStorage.getItem('vtcCurrentDay')||defaultDay();
+function catsFor(day){return [...COMMON,...DAILY].map(c=>({...c,items:[...c.items]}))}
+function defaultDay(){const today=todayLocalISO();const found=EVENT_DAYS.find(d=>d.date>=today);return found?found.id:EVENT_DAYS[EVENT_DAYS.length-1].id}
+const storedDay=localStorage.getItem('vtcCurrentDay');
+let currentDay=EVENT_DAYS.some(d=>d.id===storedDay)?storedDay:defaultDay();
 function pct(done,total){return total?Math.round(done/total*100):0}
-function renderTabs(){let el=document.getElementById('dayTabs');el.innerHTML='';EVENT_DAYS.forEach(d=>{let b=document.createElement('button');b.className='pill '+(d.id===currentDay?'active':'');b.textContent=d.label;b.onclick=()=>{currentDay=d.id;localStorage.setItem('vtcCurrentDay',currentDay);render()};el.appendChild(b);});}
-function render(){renderTabs(); const day=EVENT_DAYS.find(d=>d.id===currentDay); document.getElementById('dayTitle').textContent=day.full; document.getElementById('dayHint').textContent='Default day advances automatically by calendar date. Previous days remain available from the buttons above.'; const root=document.getElementById('categories'); root.innerHTML=''; let grandDone=0,grandTotal=0; catsFor(currentDay).forEach(cat=>{let total=cat.items.length; let done=cat.items.filter((_,i)=>localStorage.getItem(storageKey(currentDay,cat.id,i))==='1').length; grandDone+=done; grandTotal+=total; let card=document.createElement('section');card.className='cat '+(done===total?'done':''); let collapsed=localStorage.getItem(collapsedKey(currentDay,cat.id)); if(collapsed===null && done===total) collapsed='1'; let head=document.createElement('div');head.className='catHead';head.innerHTML=`<div><div class="catTitle">${cat.title}</div><div class="note">${done} out of ${total} complete</div></div><div class="catMeta">${pct(done,total)}% ${collapsed==='1'?'▸':'▾'}</div>`; let items=document.createElement('div');items.className='items '+(collapsed==='1'?'hidden':''); head.onclick=()=>{let isHidden=items.classList.toggle('hidden');localStorage.setItem(collapsedKey(currentDay,cat.id),isHidden?'1':'0');render()}; card.appendChild(head); card.appendChild(items); cat.items.forEach((txt,i)=>{let row=document.createElement('div');row.className='item'; let id=`${currentDay}-${cat.id}-${i}`; let checked=localStorage.getItem(storageKey(currentDay,cat.id,i))==='1'; row.innerHTML=`<input id="${id}" type="checkbox" ${checked?'checked':''}><label for="${id}">${txt}</label>`; row.querySelector('input').onchange=e=>{localStorage.setItem(storageKey(currentDay,cat.id,i),e.target.checked?'1':'0'); if(e.target.checked && cat.items.every((_,j)=>localStorage.getItem(storageKey(currentDay,cat.id,j))==='1')) localStorage.setItem(collapsedKey(currentDay,cat.id),'1'); render();}; items.appendChild(row);}); root.appendChild(card);}); document.getElementById('overallFill').style.width=pct(grandDone,grandTotal)+'%'; document.getElementById('overallText').textContent=`${grandDone} out of ${grandTotal} complete — ${pct(grandDone,grandTotal)}% complete`;}
-document.getElementById('expandIncomplete').onclick=()=>{catsFor(currentDay).forEach(cat=>{let done=cat.items.filter((_,i)=>localStorage.getItem(storageKey(currentDay,cat.id,i))==='1').length;localStorage.setItem(collapsedKey(currentDay,cat.id),done===cat.items.length?'1':'0')});render();};
-document.getElementById('collapseComplete').onclick=()=>{catsFor(currentDay).forEach(cat=>{let done=cat.items.filter((_,i)=>localStorage.getItem(storageKey(currentDay,cat.id,i))==='1').length;if(done===cat.items.length)localStorage.setItem(collapsedKey(currentDay,cat.id),'1')});render();};
-document.getElementById('resetDay').onclick=()=>{if(confirm('Reset all checks for this day?')){catsFor(currentDay).forEach(cat=>cat.items.forEach((_,i)=>localStorage.removeItem(storageKey(currentDay,cat.id,i))));render();}};
+
+/* ------------------------------- next up --------------------------------- */
+// The item under way keeps "now" for 15 minutes, then the strip moves on.
+const NOW_WINDOW_MS=15*60*1000;
+function upcoming(now){
+  let live=null,next=null;
+  for(const day of EVENT_DAYS){
+    for(const entry of scheduleFor(day.id)){
+      const at=instantOf(day.date,entry.time);
+      const diff=at-now;
+      if(diff>=0){if(!next) next={day,entry,at}}
+      else if(diff>-NOW_WINDOW_MS) live={day,entry,at};
+    }
+  }
+  return {live,next};
+}
+function renderNext(){
+  const now=new Date();
+  const {live,next}=upcoming(now);
+  const shown=live||next;
+  const bar=document.getElementById('nextBar');
+  const label=bar.querySelector('.nextLabel');
+  const text=document.getElementById('nextText');
+  const when=document.getElementById('nextWhen');
+  bar.classList.remove('is-live','is-done');
+  if(!shown){
+    bar.classList.add('is-done');
+    label.textContent='Done';
+    text.textContent='All scheduled sessions have finished';
+    when.textContent='';
+    return;
+  }
+  const timeText=fmtLocalTime(shown.entry.time);
+  const dayText=shown.day.date===todayLocalISO()?'':`${fmtShortDate(shown.at)} · `;
+  text.textContent=shown.entry.text;
+  if(live){
+    bar.classList.add('is-live');
+    label.textContent='Now';
+    when.textContent=next
+      ?`${dayText}${timeText} — under way · then ${fmtLocalTime(next.entry.time)} ${countdown(next.at-now)}`
+      :`${dayText}${timeText} — under way`;
+  }else{
+    label.textContent='Next';
+    when.textContent=`${dayText}${timeText} — ${countdown(shown.at-now)}`;
+  }
+}
+
+/* -------------------------------- render --------------------------------- */
+function renderTabs(){
+  const el=document.getElementById('dayTabs');
+  el.innerHTML='';
+  EVENT_DAYS.forEach(d=>{
+    const b=document.createElement('button');
+    b.className='pill '+(d.id===currentDay?'active':'');
+    b.innerHTML=`<span>${d.label}</span><span class="pillTimes">${d.meetings.map(m=>fmtLocalTime(m.time)).join(' · ')}</span>`;
+    b.onclick=()=>{currentDay=d.id;localStorage.setItem('vtcCurrentDay',currentDay);render()};
+    el.appendChild(b);
+  });
+}
+function renderDayHeader(day){
+  const isToday=day.date===todayLocalISO();
+  document.getElementById('dayTitle').innerHTML=day.full+(isToday?'<span class="badge">Today</span>':'');
+  document.getElementById('dayDate').textContent=fmtShortDate(instantOf(day.date,day.meetings[0].time));
+  const local=day.meetings.map(m=>`<span class="meetLocal">${fmtLocalTime(m.time)}<span class="meetName">${m.name}</span></span>`).join('<span class="meetName"> · </span>');
+  const host=day.meetings.map(m=>fmtHostTime(instantOf(day.date,m.time))).join(' · ');
+  document.getElementById('dayMeetings').innerHTML=`<div class="meetLine"><div>${local}</div><div class="meetHost">${host} in ${HOST_TZ_LABEL}</div></div>`;
+}
+function renderRunSheet(day){
+  const rows=document.getElementById('runRows');
+  const now=new Date();
+  const {live,next}=upcoming(now);
+  rows.innerHTML='';
+  scheduleFor(day.id).forEach(entry=>{
+    const at=instantOf(day.date,entry.time);
+    const row=document.createElement('div');
+    let state='';
+    if(live && live.day.id===day.id && live.entry===entry) state='is-now';
+    else if(next && next.day.id===day.id && next.entry===entry) state='is-next';
+    else if(at<now) state='is-past';
+    row.className='runRow '+(entry.meeting?'is-meeting ':'')+state;
+    row.innerHTML=`<div class="runTime">${fmtLocalTime(entry.time)}</div><div class="runText"></div><div class="runHost">${fmtHostTime(at)}</div>`;
+    row.querySelector('.runText').textContent=entry.text;
+    rows.appendChild(row);
+  });
+  document.getElementById('runMeta').textContent=`${LOCAL_TZ_LABEL} · ${HOST_TZ_LABEL}`;
+}
+function render(){
+  renderTabs();
+  const day=EVENT_DAYS.find(d=>d.id===currentDay);
+  renderDayHeader(day);
+  renderRunSheet(day);
+  renderNext();
+  const root=document.getElementById('categories');
+  root.innerHTML='';
+  let grandDone=0,grandTotal=0;
+  catsFor(currentDay).forEach(cat=>{
+    const total=cat.items.length;
+    const done=cat.items.filter((_,i)=>localStorage.getItem(storageKey(currentDay,cat.id,i))==='1').length;
+    grandDone+=done;grandTotal+=total;
+    const card=document.createElement('section');
+    card.className='cat '+(done===total?'done':'');
+    let collapsed=localStorage.getItem(collapsedKey(currentDay,cat.id));
+    if(collapsed===null && done===total) collapsed='1';
+    const head=document.createElement('div');
+    head.className='catHead';
+    head.innerHTML=`<div><div class="catTitle">${cat.title}</div><div class="note">${done} out of ${total} complete</div></div><div class="catMeta">${pct(done,total)}% ${collapsed==='1'?'▸':'▾'}</div>`;
+    const items=document.createElement('div');
+    items.className='items '+(collapsed==='1'?'hidden':'');
+    head.onclick=()=>{const isHidden=items.classList.toggle('hidden');localStorage.setItem(collapsedKey(currentDay,cat.id),isHidden?'1':'0');render()};
+    card.appendChild(head);card.appendChild(items);
+    cat.items.forEach((txt,i)=>{
+      const row=document.createElement('div');
+      row.className='item';
+      const id=`${currentDay}-${cat.id}-${i}`;
+      const checked=localStorage.getItem(storageKey(currentDay,cat.id,i))==='1';
+      row.innerHTML=`<input id="${id}" type="checkbox" ${checked?'checked':''}><label for="${id}"></label>`;
+      row.querySelector('label').textContent=txt;
+      row.querySelector('input').onchange=e=>{
+        localStorage.setItem(storageKey(currentDay,cat.id,i),e.target.checked?'1':'0');
+        if(e.target.checked && cat.items.every((_,j)=>localStorage.getItem(storageKey(currentDay,cat.id,j))==='1')) localStorage.setItem(collapsedKey(currentDay,cat.id),'1');
+        render();
+      };
+      items.appendChild(row);
+    });
+    root.appendChild(card);
+  });
+  document.getElementById('overallFill').style.width=pct(grandDone,grandTotal)+'%';
+  document.getElementById('overallText').textContent=`${grandDone} out of ${grandTotal} complete — ${pct(grandDone,grandTotal)}% complete`;
+}
+document.getElementById('expandIncomplete').onclick=()=>{catsFor(currentDay).forEach(cat=>{const done=cat.items.filter((_,i)=>localStorage.getItem(storageKey(currentDay,cat.id,i))==='1').length;localStorage.setItem(collapsedKey(currentDay,cat.id),done===cat.items.length?'1':'0')});render()};
+document.getElementById('collapseComplete').onclick=()=>{catsFor(currentDay).forEach(cat=>{const done=cat.items.filter((_,i)=>localStorage.getItem(storageKey(currentDay,cat.id,i))==='1').length;if(done===cat.items.length)localStorage.setItem(collapsedKey(currentDay,cat.id),'1')});render()};
+document.getElementById('resetDay').onclick=()=>{if(confirm('Reset all checks for this day?')){catsFor(currentDay).forEach(cat=>cat.items.forEach((_,i)=>localStorage.removeItem(storageKey(currentDay,cat.id,i))));render()}};
+
 render();
+setInterval(()=>{renderNext();renderRunSheet(EVENT_DAYS.find(d=>d.id===currentDay))},30000);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden) render()});
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
